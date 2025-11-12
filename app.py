@@ -1,66 +1,40 @@
-"""
-FastAPI application exposing the NBA player prop simulator service.
+# app.py
+import streamlit as st
+import pandas as pd
+from simulate import run_simulation
 
-This module wires together the simulation logic from ``simulate.py`` and
-serves a REST API for predicting a player's stat line in an upcoming
-matchup.  It also hosts a minimal static front‑end (index.html) under
-the ``/static`` route.
-"""
-
-from __future__ import annotations
-
-import uvicorn
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
-
-from typing import Dict
-
-from simulate import (
-    load_game_logs,
-    train_models,
-    simulate_player_stats,
+st.set_page_config(
+    page_title="🏀 NBA Player Prop Simulator",
+    page_icon="🏀",
+    layout="centered",
 )
 
-app = FastAPI(title="NBA Player Prop Simulator", version="0.1.0")
+st.title("🏀 NBA Player Prop Simulator")
+st.markdown(
+    "Simulate **1,000,000 game outcomes** using player form, head-to-head, and context "
+    "to predict upcoming stat lines."
+)
 
-# Load data and train models on startup
-game_logs = load_game_logs()
-models = train_models(game_logs)
+# User inputs
+col1, col2 = st.columns(2)
+with col1:
+    player = st.text_input("Player Name", "LeBron James")
+with col2:
+    opponent = st.text_input("Opponent Team", "Boston Celtics")
 
-# Mount the static directory to serve the front‑end
-app.mount("/static", StaticFiles(directory=(__file__).rsplit("/", 1)[0] + "/static"), name="static")
+sim_count = st.slider("Number of Simulations", 10000, 1000000, 100000, step=10000)
 
+if st.button("Run Simulation"):
+    with st.spinner("Running simulation..."):
+        try:
+            results = run_simulation(player, opponent, simulations=sim_count)
+            st.success("Simulation complete ✅")
+            
+            df = pd.DataFrame(list(results.items()), columns=["Stat", "Predicted Value"])
+            st.dataframe(df, use_container_width=True)
 
-@app.get("/")
-async def root() -> Dict[str, str]:
-    """Root endpoint providing a welcome message and usage hints."""
-    return {
-        "message": "Welcome to the NBA Player Prop Simulator API",
-        "usage": "Call /simulate?player=LeBron%20James&opponent=Boston%20Celtics to get projections",
-    }
+            st.bar_chart(df.set_index("Stat"))
+        except Exception as e:
+            st.error(f"⚠️ Error: {e}")
 
-
-@app.get("/simulate")
-async def simulate(
-    player: str = Query(..., description="Name of the NBA player"),
-    opponent: str = Query(..., description="Name of the opposing team"),
-) -> JSONResponse:
-    """Return projected stat line for the given player and opponent.
-
-    The result includes points, rebounds, assists, steals, blocks and turnovers.
-    It combines a simple ML model with a Monte‑Carlo simulation based on
-    recent form and head‑to‑head performance.
-    """
-    # Check if the player exists in our dataset
-    if player not in game_logs["player"].unique():
-        raise HTTPException(status_code=404, detail=f"Player '{player}' not found in dataset")
-    # Check if the opponent exists in our dataset
-    if opponent not in game_logs["opponent"].unique():
-        raise HTTPException(status_code=404, detail=f"Opponent '{opponent}' not found in dataset")
-    results = simulate_player_stats(game_logs, models, player, opponent)
-    return JSONResponse(content={"player": player, "opponent": opponent, "projections": results})
-
-
-if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+st.caption("Powered by AI Monte Carlo simulation — built for NBA props.")
